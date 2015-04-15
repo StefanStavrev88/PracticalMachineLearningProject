@@ -1,0 +1,114 @@
+---
+title: "Practical Machine Learning Project"
+author: "Stefan Stavrev"
+date: "Wednesday, April 15, 2015"
+output: html_document
+---
+
+```{r setoptions, echo=FALSE}
+library(knitr)
+opts_chunk$set(cache=TRUE)
+```
+
+## Synopsis
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset). The goal of this project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. We used random forests for training a prediction model, for the sake of accuracy.
+
+## Data Processing
+
+The training data for this project are available here: 
+
+[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+The test data are available here: 
+
+[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+The data for this project come from this source: [http://groupware.les.inf.puc-rio.br/har](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv).
+
+First I load the train and test datasets. I convert the "classe" variable to a factor. By examining the data I found that missing variables were marked as "#DIV/0!", "NA", and "", and they are properly read as NA values in R.
+
+```{r}
+training <- read.csv(file="pml-training.csv", na.strings=c("#DIV/0!","NA",""), header=T, stringsAsFactors=F)
+testing <- read.csv(file="pml-testing.csv", na.strings=c("#DIV/0!","NA",""), header=T, stringsAsFactors=F)
+training$classe <- as.factor(training$classe)
+str(training)
+```
+
+I examined the data and I found that I can remove variables that contain NA values without loosing too much information, and still keep enough information for good prediction.
+
+```{r}
+dim(training)
+dim(testing)
+```
+
+```{r}
+training <- training[, apply(training, 2, function(x) {sum(is.na(x))}) == 0]
+testing <- testing[, apply(testing, 2, function(x) {sum(is.na(x))}) == 0]
+```
+
+```{r}
+dim(training)
+dim(testing)
+```
+
+As you can see, the number of columns has decreased from 160 to 60.
+
+Now I will preprocess numeric variables with "center" and "scale" to make sure there are no skewed variables. For that purpose, I load the caret library and I use the preProcess and predict functions.
+
+```{r}
+library(caret)
+nums <- sapply(training, is.numeric)
+preObj <- preProcess(training[, nums], method=c("center", "scale"))
+training2 <- predict(preObj, training[, nums])
+testing2 <- predict(preObj, testing[, nums])
+```
+
+I will now further decrease the number of variables by removing variables that are not so relevant for predicting the classe variable. I remove the dumbbell variables because they are not relevant for predicting barbell lifts which is what we need.
+
+```{r}
+remVars <- !grepl("dumbbell", names(training2))
+training2 <- training2[,remVars]
+testing2 <- testing2[,remVars]
+
+training2$classe <- training$classe
+```
+
+## Cross Validation and Training
+
+I separate the training dataset into training data 70% and cross validation data 30%.
+
+```{r}
+dp = createDataPartition(training2$classe, p=0.7, list=F)
+training3 = training2[dp,]
+crossVal = training2[-dp,]
+```
+
+I chose random forests because of accuracy.
+
+```{r}
+trainedModel <- train(classe ~., data=training3, method="rf", trControl=trainControl(method='cv'), number=5)
+trainedModel
+```
+
+Now we can see how good our fit is, both for the training set and the cross validation set.
+
+```{r}
+predictTrain <- predict(trainedModel, training3)
+confusionMatrix(predictTrain, training3$classe)
+```
+
+```{r}
+predictCV <- predict(trainedModel, crossVal)
+confusionMatrix(predictCV, crossVal$classe)
+```
+
+The fit seems to be perfect on the training set, and a bit less than perfect on the cross validation set, according to the reported accuracy.
+
+## Prediction
+
+Now let's use our model to predict on the testing data.
+
+```{r}
+predictTest <- predict(trainedModel, testing2)
+```
